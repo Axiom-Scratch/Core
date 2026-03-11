@@ -1,12 +1,12 @@
 ﻿// Core.cpp : Defines the entry point for the application.
 //
 
-#include "Core.h"
+#include "Application/Application.h"
 
-using namespace std;
 
 int main()
 {
-	cout << "Hello CMake." << endl;
+	Application app;
+	app.Run();
 	return 0;
 }
