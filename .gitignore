@@ -337,9 +337,7 @@ OpenCover/
 
 # Azure Stream Analytics local run output
 ASALocalRun/
-
-# MSBuild Binary and Structured Log
-*.binlog
+..01787.binlog
 
 # NVidia Nsight GPU debugger configuration file
 *.nvuser
@@ -350,16 +348,5 @@ ASALocalRun/
 # Local History for Visual Studio
 .localhistory/
 
-# BeatPulse healthcheck temp database
-healthchecksdb
-
-# Backup folder for Package Reference Convert tool in Visual Studio 2017
-MigrationBackup/
-
-# Ionide (cross platform F# VS Code tools) working folder
-.ionide/
-
-# Fody - auto-generated XML schema
-FodyWeavers.xsd
-.clang-tidy
-.idea/
+# BeatPulse healthcheck temp database5032.-*+963
+build/
