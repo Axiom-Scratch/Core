@@ -37,253 +37,174 @@ cmake_minimum_required(VERSION 3.20)
 
 project(procedural_planet LANGUAGES C CXX)
 
+# Options
 function(axiom_option NAME DEFAULT DESCRIPTION)
     option(${NAME} "${DESCRIPTION}" ${DEFAULT})
 endfunction()
 
-function(axiom_define_toggle NAME)
+function(axiom_define_toggle TARGET NAME)
     if(${NAME})
-        add_compile_definitions(${NAME}=1)
+        target_compile_definitions(${TARGET} PRIVATE ${NAME}=1)
     else()
-        add_compile_definitions(${NAME}=0)
+        target_compile_definitions(${TARGET} PRIVATE ${NAME}=0)
     endif()
 endfunction()
 
+# Core toggles
+axiom_option(AXIOM_ENABLE_ASSERTS ON "Enable engine assertions")
+axiom_option(AXIOM_ENABLE_LOGGING ON "Enable engine logging")
+
+# Sanitizers
+axiom_option(AXIOM_ENABLE_ASAN ON "AddressSanitizer")
+axiom_option(AXIOM_ENABLE_UBSAN ON "UBSan")
+axiom_option(AXIOM_ENABLE_TSAN OFF "TSan")
+
+# Tooling
+axiom_option(AXIOM_ENABLE_TRACY ON "Tracy profiler")
+axiom_option(AXIOM_ENABLE_LTO OFF "Link-time optimization")
+axiom_option(AXIOM_WARNINGS_AS_ERRORS ON "Treat warnings as errors")
+
+# Standard
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-if(CMAKE_CONFIGURATION_TYPES)
-    string(JOIN ", " AXIOM_AVAILABLE_CONFIGS ${CMAKE_CONFIGURATION_TYPES})
-    set(AXIOM_BUILD_TYPE_DISPLAY "Multi-config [${AXIOM_AVAILABLE_CONFIGS}]")
-else()
-    if(NOT DEFINED CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
-        set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
-    endif()
-
-    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
-        Debug
-        Release
-        RelWithDebInfo
-        MinSizeRel
-    )
-    set(AXIOM_BUILD_TYPE_DISPLAY "${CMAKE_BUILD_TYPE}")
-endif()
-
-axiom_option(AXIOM_ENABLE_ASSERTS ON "Enable engine assertions")
-axiom_option(AXIOM_ENABLE_LOGGING ON "Enable engine logging")
-
-axiom_option(AXIOM_ENABLE_ASAN ON "Enable AddressSanitizer")
-axiom_option(AXIOM_ENABLE_UBSAN ON "Enable UndefinedBehaviorSanitizer")
-axiom_option(AXIOM_ENABLE_TSAN OFF "Enable ThreadSanitizer")
-axiom_option(AXIOM_ENABLE_LSAN OFF "Enable LeakSanitizer")
-
-axiom_option(AXIOM_ENABLE_PROFILING OFF "Enable profiler instrumentation")
-axiom_option(AXIOM_ENABLE_TRACY ON "Enable Tracy profiler")
-axiom_option(AXIOM_ENABLE_PERF OFF "Enable perf profiling")
-axiom_option(AXIOM_ENABLE_DEBUG_SYMBOLS ON "Enable debug symbols")
-axiom_option(AXIOM_ENABLE_OPTIMIZATION OFF "Enable compiler optimizations")
-axiom_option(AXIOM_ENABLE_LTO OFF "Enable link-time optimization")
-
-set(AXIOM_COMPILER_FAMILY "Unknown")
-set(AXIOM_COMPILER_IS_GCC OFF)
-set(AXIOM_COMPILER_IS_CLANG OFF)
-set(AXIOM_COMPILER_IS_MSVC OFF)
-
+# Compiler detection
 if(MSVC)
-    set(AXIOM_COMPILER_FAMILY "MSVC")
-    set(AXIOM_COMPILER_IS_MSVC ON)
+    set(AXIOM_COMPILER MSVC)
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    set(AXIOM_COMPILER_FAMILY "GCC")
-    set(AXIOM_COMPILER_IS_GCC ON)
+    set(AXIOM_COMPILER GCC)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    set(AXIOM_COMPILER_FAMILY "Clang")
-    set(AXIOM_COMPILER_IS_CLANG ON)
+    set(AXIOM_COMPILER CLANG)
 else()
-    message(FATAL_ERROR
-        "Unsupported compiler '${CMAKE_CXX_COMPILER_ID}'. "
-        "Supported compilers: GCC, Clang, and MSVC."
-    )
+    message(FATAL_ERROR "Unsupported compiler")
 endif()
 
-set(AXIOM_COMPILE_FLAGS "")
-set(AXIOM_LINK_FLAGS "")
-set(AXIOM_SANITIZER_COMPONENTS "")
-
-if(AXIOM_ENABLE_DEBUG_SYMBOLS)
-    if(AXIOM_COMPILER_IS_GCC)
-        list(APPEND AXIOM_COMPILE_FLAGS -g3 -ggdb)
-    elseif(AXIOM_COMPILER_IS_CLANG)
-        list(APPEND AXIOM_COMPILE_FLAGS -g -glldb)
-    elseif(AXIOM_COMPILER_IS_MSVC)
-        list(APPEND AXIOM_COMPILE_FLAGS /Zi)
-    endif()
-endif()
-
-if(AXIOM_COMPILER_IS_GCC OR AXIOM_COMPILER_IS_CLANG)
-    list(APPEND AXIOM_COMPILE_FLAGS -fno-omit-frame-pointer)
-endif()
-
-if(AXIOM_ENABLE_OPTIMIZATION)
-    if(AXIOM_COMPILER_IS_MSVC)
-        list(APPEND AXIOM_COMPILE_FLAGS /O2)
-    else()
-        list(APPEND AXIOM_COMPILE_FLAGS -O2)
-    endif()
-else()
-    if(AXIOM_COMPILER_IS_MSVC)
-        list(APPEND AXIOM_COMPILE_FLAGS /Od)
-    else()
-        list(APPEND AXIOM_COMPILE_FLAGS -O0)
-    endif()
-endif()
-
-if(AXIOM_ENABLE_ASAN)
-    list(APPEND AXIOM_SANITIZER_COMPONENTS address)
-endif()
-
-if(AXIOM_ENABLE_UBSAN)
-    list(APPEND AXIOM_SANITIZER_COMPONENTS undefined)
-endif()
-
-if(AXIOM_SANITIZER_COMPONENTS)
-    if(AXIOM_COMPILER_IS_MSVC)
-        message(FATAL_ERROR
-            "Sanitizers are only supported for GCC and Clang in this build configuration."
-        )
-    endif()
-
-    list(JOIN AXIOM_SANITIZER_COMPONENTS "," AXIOM_SANITIZER_FLAG_SUFFIX)
-    list(APPEND AXIOM_COMPILE_FLAGS "-fsanitize=${AXIOM_SANITIZER_FLAG_SUFFIX}")
-    list(APPEND AXIOM_LINK_FLAGS "-fsanitize=${AXIOM_SANITIZER_FLAG_SUFFIX}")
-endif()
-
-if(AXIOM_ENABLE_PROFILING)
-    if(AXIOM_COMPILER_IS_MSVC)
-        message(FATAL_ERROR
-            "AXIOM_ENABLE_PROFILING requires GCC or Clang because it uses -pg."
-        )
-    endif()
-
-    list(APPEND AXIOM_COMPILE_FLAGS -pg)
-    list(APPEND AXIOM_LINK_FLAGS -pg)
-endif()
-
-if(AXIOM_ENABLE_PERF)
-    if(AXIOM_COMPILER_IS_GCC OR AXIOM_COMPILER_IS_CLANG)
-        list(APPEND AXIOM_COMPILE_FLAGS -g -fno-omit-frame-pointer)
-        list(APPEND AXIOM_LINK_FLAGS -rdynamic)
-    endif()
-endif()
-
-if(AXIOM_ENABLE_LTO)
-    if(AXIOM_COMPILER_IS_MSVC)
-        list(APPEND AXIOM_COMPILE_FLAGS /GL)
-        list(APPEND AXIOM_LINK_FLAGS /LTCG)
-    else()
-        list(APPEND AXIOM_COMPILE_FLAGS -flto)
-        list(APPEND AXIOM_LINK_FLAGS -flto)
-    endif()
-endif()
-
-include(cmake/compiler_warnings.cmake)
-
-if(CMAKE_EXPORT_COMPILE_COMMANDS)
-    set(LINK_PATH "${CMAKE_SOURCE_DIR}/compile_commands.json")
-
-    if(EXISTS "${LINK_PATH}" OR IS_SYMLINK "${LINK_PATH}")
-        file(REMOVE "${LINK_PATH}")
-    endif()
-
-    execute_process(
-        COMMAND ${CMAKE_COMMAND} -E create_symlink
-                ${CMAKE_BINARY_DIR}/compile_commands.json
-                ${LINK_PATH}
-    )
-endif()
-
+# Dependencies
 message(STATUS "---- Dependencies ----")
 
 add_subdirectory(external/glfw)
 
 add_subdirectory(external/glad/cmake)
-glad_add_library(glad REPRODUCIBLE API gl:core=3.3)
+glad_add_library(glad REPRODUCIBLE API gl:core=4.6) # FIXED
 
 set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
-set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
-set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 add_subdirectory(external/assimp)
 
 add_subdirectory(external/spdlog)
 
 if(AXIOM_ENABLE_TRACY)
     add_subdirectory(external/tracy)
-    add_compile_definitions(TRACY_ENABLE)
 endif()
 
-if(AXIOM_COMPILE_FLAGS)
-    add_compile_options(${AXIOM_COMPILE_FLAGS})
-endif()
-
-if(AXIOM_LINK_FLAGS)
-    add_link_options(${AXIOM_LINK_FLAGS})
-endif()
-
-axiom_define_toggle(AXIOM_ENABLE_ASSERTS)
-axiom_define_toggle(AXIOM_ENABLE_LOGGING)
-
+# Engine
 add_subdirectory(Engine)
 
-if(AXIOM_ENABLE_TRACY)
-    target_sources(Engine PRIVATE
-        ${CMAKE_SOURCE_DIR}/external/tracy/public/TracyClient.cpp
+# TARGET CONFIGURATION
+
+# Apply config to Engine target ONLY
+function(axiom_configure_target TARGET)
+
+    # Debug symbols
+    if(AXIOM_COMPILER STREQUAL "MSVC")
+        target_compile_options(${TARGET} PRIVATE /Zi)
+    else()
+        target_compile_options(${TARGET} PRIVATE -g)
+    endif()
+
+    # Frame pointer (perf tools)
+    if(NOT AXIOM_COMPILER STREQUAL "MSVC")
+        target_compile_options(${TARGET} PRIVATE -fno-omit-frame-pointer)
+    endif()
+
+    # Optimization per config
+    target_compile_options(${TARGET} PRIVATE
+        $<$<CONFIG:Debug>:-O0>
+        $<$<CONFIG:Release>:-O2>
+        $<$<CONFIG:RelWithDebInfo>:-O2>
     )
-    target_link_libraries(Engine PRIVATE Tracy::TracyClient)
+
+    # Warnings
+    include(cmake/compiler_warnings.cmake)
+
+    if(AXIOM_WARNINGS_AS_ERRORS)
+        if(AXIOM_COMPILER STREQUAL "MSVC")
+            target_compile_options(${TARGET} PRIVATE /WX)
+        else()
+            target_compile_options(${TARGET} PRIVATE -Werror)
+        endif()
+    endif()
+
+    # Sanitizers
+    if(AXIOM_ENABLE_ASAN OR AXIOM_ENABLE_UBSAN)
+        if(AXIOM_COMPILER STREQUAL "MSVC")
+            message(FATAL_ERROR "Sanitizers not supported on MSVC")
+        endif()
+
+        set(SAN_FLAGS "")
+
+        if(AXIOM_ENABLE_ASAN)
+            list(APPEND SAN_FLAGS address)
+        endif()
+
+        if(AXIOM_ENABLE_UBSAN)
+            list(APPEND SAN_FLAGS undefined)
+        endif()
+
+        list(JOIN SAN_FLAGS "," SAN_FLAGS_STR)
+
+        target_compile_options(${TARGET} PRIVATE -fsanitize=${SAN_FLAGS_STR})
+        target_link_options(${TARGET} PRIVATE -fsanitize=${SAN_FLAGS_STR})
+    endif()
+
+    # LTO
+    if(AXIOM_ENABLE_LTO)
+        if(AXIOM_COMPILER STREQUAL "MSVC")
+            target_compile_options(${TARGET} PRIVATE /GL)
+            target_link_options(${TARGET} PRIVATE /LTCG)
+        else()
+            target_compile_options(${TARGET} PRIVATE -flto)
+            target_link_options(${TARGET} PRIVATE -flto)
+        endif()
+    endif()
+
+    # Feature toggles
+    axiom_define_toggle(${TARGET} AXIOM_ENABLE_ASSERTS)
+    axiom_define_toggle(${TARGET} AXIOM_ENABLE_LOGGING)
+
+    # Tracy
+    if(AXIOM_ENABLE_TRACY)
+        target_compile_definitions(${TARGET} PRIVATE TRACY_ENABLE)
+        target_sources(${TARGET} PRIVATE
+            ${CMAKE_SOURCE_DIR}/external/tracy/public/TracyClient.cpp
+        )
+        target_link_libraries(${TARGET} PRIVATE Tracy::TracyClient)
+    endif()
+
+endfunction()
+
+# Apply config to Engine
+axiom_configure_target(Engine)
+
+# compile_commands symlink
+if(CMAKE_EXPORT_COMPILE_COMMANDS)
+    execute_process(
+        COMMAND ${CMAKE_COMMAND} -E create_symlink
+                ${CMAKE_BINARY_DIR}/compile_commands.json
+                ${CMAKE_SOURCE_DIR}/compile_commands.json
+    )
 endif()
 
-if(AXIOM_COMPILE_FLAGS)
-    string(JOIN " " AXIOM_COMPILE_FLAGS_STRING ${AXIOM_COMPILE_FLAGS})
-else()
-    set(AXIOM_COMPILE_FLAGS_STRING "<none>")
-endif()
-
-if(AXIOM_LINK_FLAGS)
-    string(JOIN " " AXIOM_LINK_FLAGS_STRING ${AXIOM_LINK_FLAGS})
-else()
-    set(AXIOM_LINK_FLAGS_STRING "<none>")
-endif()
-
-if(AXIOM_SANITIZER_COMPONENTS)
-    string(JOIN ", " AXIOM_SANITIZERS_STRING ${AXIOM_SANITIZER_COMPONENTS})
-else()
-    set(AXIOM_SANITIZERS_STRING "<none>")
-endif()
-
-message(STATUS "========== Axiom Build Configuration ==========")
-message(STATUS "Compiler Path: ${CMAKE_CXX_COMPILER}")
-message(STATUS "Compiler ID: ${CMAKE_CXX_COMPILER_ID}")
-message(STATUS "Compiler Family: ${AXIOM_COMPILER_FAMILY}")
-message(STATUS "Compiler Version: ${CMAKE_CXX_COMPILER_VERSION}")
-message(STATUS "Build Type: ${AXIOM_BUILD_TYPE_DISPLAY}")
+# Info dump
+message(STATUS "========== Axiom Build ==========")
+message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID}")
+message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "System: ${CMAKE_SYSTEM_NAME}")
-message(STATUS "Architecture: ${CMAKE_SYSTEM_PROCESSOR}")
-message(STATUS "C++ Standard: ${CMAKE_CXX_STANDARD}")
-message(STATUS "AXIOM_ENABLE_ASSERTS: ${AXIOM_ENABLE_ASSERTS}")
-message(STATUS "AXIOM_ENABLE_LOGGING: ${AXIOM_ENABLE_LOGGING}")
-message(STATUS "AXIOM_ENABLE_ASAN: ${AXIOM_ENABLE_ASAN}")
-message(STATUS "AXIOM_ENABLE_UBSAN: ${AXIOM_ENABLE_UBSAN}")
-message(STATUS "AXIOM_ENABLE_TSAN: ${AXIOM_ENABLE_TSAN}")
-message(STATUS "AXIOM_ENABLE_LSAN: ${AXIOM_ENABLE_LSAN}")
-message(STATUS "AXIOM_ENABLE_PROFILING: ${AXIOM_ENABLE_PROFILING}")
-message(STATUS "AXIOM_ENABLE_TRACY: ${AXIOM_ENABLE_TRACY}")
-message(STATUS "AXIOM_ENABLE_PERF: ${AXIOM_ENABLE_PERF}")
-message(STATUS "AXIOM_ENABLE_DEBUG_SYMBOLS: ${AXIOM_ENABLE_DEBUG_SYMBOLS}")
-message(STATUS "AXIOM_ENABLE_OPTIMIZATION: ${AXIOM_ENABLE_OPTIMIZATION}")
-message(STATUS "AXIOM_ENABLE_LTO: ${AXIOM_ENABLE_LTO}")
-message(STATUS "Active Sanitizers: ${AXIOM_SANITIZERS_STRING}")
-message(STATUS "Active Compile Flags: ${AXIOM_COMPILE_FLAGS_STRING}")
-message(STATUS "Active Link Flags: ${AXIOM_LINK_FLAGS_STRING}")
-message(STATUS "===============================================")
+message(STATUS "C++: ${CMAKE_CXX_STANDARD}")
+message(STATUS "ASAN: ${AXIOM_ENABLE_ASAN}")
+message(STATUS "UBSAN: ${AXIOM_ENABLE_UBSAN}")
+message(STATUS "TRACY: ${AXIOM_ENABLE_TRACY}")
+message(STATUS "================================")
